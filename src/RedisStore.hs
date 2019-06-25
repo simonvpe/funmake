@@ -20,7 +20,6 @@ instance SourceStore Connection where
   setSource conn filepath = runRedis conn $ do
     let filename = C8.pack filepath
     content <- liftIO $ Data.ByteString.readFile filepath
-    liftIO $ Data.ByteString.putStrLn content
     result <- hset "src" filename content
     return $ case result of
       Left err -> Left(BackendError $ C8.pack $ show err)

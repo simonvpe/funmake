@@ -1,9 +1,16 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 module Main where
 
 import Control.Concurrent (threadDelay)
 import qualified ElmArchitecture
 import ElmArchitecture (Config(_init, _update, Config), Cmd)
 import Prelude hiding (init)
+import qualified Database.Redis
+import qualified RedisStore
+import qualified MemoryStore
+import Data.ByteString hiding (init, getLine, putStrLn)
+import Data.ByteString.UTF8 (toString)
 
 main :: IO ()
 main = ElmArchitecture.run Config
@@ -16,23 +23,25 @@ main = ElmArchitecture.run Config
 data Model = Model
   { counter :: Int
   , content :: String
+  , store :: Maybe Database.Redis.Connection
   }
-  deriving (Show)
 
 data Msg
   = DoNothing
   | SetContent String
+  | SetStore Database.Redis.Connection
   | DecreaseCounter
 
 -- INIT
 
 init :: (Model, Cmd Msg)
 init =
-  (Model {counter = 10, content = "No content"}
-   -- Immidiate IO action
-  , [ ignoreResult $ putStrLn "Program Started"
-      -- Non blocking IO, wait for user input
-    , SetContent <$> getLine
+  (Model { counter = 10
+         , content = "No content"
+         , store   = Nothing
+         }
+  , [ -- Immidiate IO action
+      SetStore <$> redisConnect
       -- Async tasks
     , SetContent <$> waitFor 2 "Two"
     , SetContent <$> httpGet "https://hackage.haskell.org"
@@ -47,20 +56,29 @@ update :: Msg -> Model -> (Model, Cmd Msg)
 update msg model =
   case msg of
     DoNothing ->
-      (model, [])
+      (model
+      , []
+      )
+
+    SetStore store ->
+      (model { store = Just store }
+      , [ SetContent . unwrap <$> MemoryStore.getSource store ("cpp/a.cpp" :: FilePath) ]
+      )
 
     DecreaseCounter ->
       if counter model == 0 then
-        (model, [])
+        (model
+        , []
+        )
       else
         (model {counter = counter model - 1}
         , [ waitFor 1 DecreaseCounter
-          , ignoreResult $ putStrLn $ show model
+          , ignoreResult $ putStrLn $ show $ content model
           ]
         )
 
-    SetContent newContent ->
-      ( Model { counter = counter model, content = newContent }
+    SetContent content ->
+      ( model { content = content }
       , []
       )
 
@@ -81,3 +99,11 @@ waitFor :: Int -> a -> IO a
 waitFor seconds val = do
   threadDelay $ seconds * 1000000
   return val
+
+redisConnect :: IO(Database.Redis.Connection)
+redisConnect = Database.Redis.checkedConnect Database.Redis.defaultConnectInfo
+
+unwrap :: Either a ByteString -> String
+unwrap thing = case thing of
+  Left _ -> "ERROR"
+  Right s -> toString s

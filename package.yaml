@@ -24,6 +24,7 @@ dependencies:
 - hedis
 - bytestring
 - async
+- utf8-string
 
 library:
   source-dirs: src
